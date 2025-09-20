@@ -1,0 +1,90 @@
+{
+  "configVersion": 0,
+  "playStore": {
+    "track": "production",
+    "releaseStatus": "draft",
+    "applicationId": "com.notextapp.mobile",
+    "listing": {
+      "language": "fr-FR",
+      "title": "NoText.",
+      "shortDescription": "Partagez des moments authentiques sans texte, juste des images et vidéos.",
+      "fullDescription": "NoText. est une application de partage de médias unique qui privilégie l'authenticité visuelle. \n\nCaractéristiques principales :\n• Partage de photos et vidéos sans texte\n• Interface intuitive et épurée\n• Expérience utilisateur focalisée sur le visuel\n• Communauté basée sur l'authenticité\n• Sécurité et confidentialité des données\n\nDécouvrez une nouvelle façon de communiquer où les images parlent plus que les mots. NoText. vous permet de partager vos moments les plus authentiques avec vos proches de manière simple et directe.\n\nL'application est conçue pour favoriser des interactions plus vraies et moins filtrées, en se concentrant sur ce qui compte vraiment : vos expériences visuelles.\n\nRejoignez la communauté NoText. et redécouvrez le plaisir de partager sans contraintes textuelles.",
+      "video": "",
+      "contactWebsite": "https://notextapp.com",
+      "contactEmail": "support@notextapp.com",
+      "contactPhone": "",
+      "privacyPolicyUrl": "https://notextapp.com/privacy"
+    },
+    "images": {
+      "icon": "./assets/images/icon.png",
+      "featureGraphic": "./store-assets/feature-graphic.png",
+      "phoneScreenshots": [
+        "./store-assets/screenshot-1.png",
+        "./store-assets/screenshot-2.png",
+        "./store-assets/screenshot-3.png",
+        "./store-assets/screenshot-4.png"
+      ],
+      "tabletScreenshots": []
+    },
+    "contentRating": {
+      "category": "SOCIAL",
+      "contentDescriptors": ["USER_GENERATED_CONTENT"],
+      "interactiveElements": ["USERS_INTERACT_ONLINE"]
+    }
+  },
+  "appStore": {
+    "bundleId": "com.notextapp.mobile",
+    "listing": {
+      "language": "fr",
+      "name": "NoText.",
+      "subtitle": "Partagez sans mots, juste l'essentiel",
+      "keywords": "photo,video,partage,authentique,social,camera,media,instant,moments,visuel",
+      "description": "Découvrez NoText., l'application qui révolutionne le partage social en privilégiant l'authenticité visuelle.\n\n✨ POURQUOI NOTEXT. ?\n• Partagez vos moments les plus vrais sans filtre textuel\n• Interface épurée centrée sur l'expérience visuelle\n• Communauté basée sur l'authenticité et la spontanéité\n• Sécurité et respect de votre vie privée\n\n📱 FONCTIONNALITÉS\n• Capture photo et vidéo intégrée\n• Partage instantané avec vos proches\n• Navigation intuitive et fluide\n• Synchronisation en temps réel\n• Support des médias haute qualité\n\n🎯 PHILOSOPHIE\nNoText. croit que les images parlent plus que les mots. Notre application vous permet de partager vos expériences de manière pure et directe, sans la complexité des messages textuels.\n\nRejoignez une communauté qui valorise l'authenticité et redécouvrez le plaisir de partager l'essentiel.",
+      "releaseNotes": "Première version de NoText. disponible !\n\nDécouvrez une nouvelle façon de partager vos moments avec:\n• Interface utilisateur optimisée\n• Capture photo/vidéo fluide\n• Partage instantané sécurisé\n• Performance améliorée",
+      "promotionalText": "L'app qui révolutionne le partage social : partagez vos moments authentiques sans texte, juste l'essentiel visuel.",
+      "supportUrl": "https://notextapp.com/support",
+      "marketingUrl": "https://notextapp.com",
+      "privacyPolicyUrl": "https://notextapp.com/privacy"
+    },
+    "images": {
+      "appIcon": "./assets/images/icon.png",
+      "screenshots": {
+        "iphone67": [
+          "./store-assets/ios/iphone-67-1.png",
+          "./store-assets/ios/iphone-67-2.png",
+          "./store-assets/ios/iphone-67-3.png"
+        ],
+        "iphone65": [
+          "./store-assets/ios/iphone-65-1.png",
+          "./store-assets/ios/iphone-65-2.png",
+          "./store-assets/ios/iphone-65-3.png"
+        ],
+        "iphone55": [
+          "./store-assets/ios/iphone-55-1.png",
+          "./store-assets/ios/iphone-55-2.png",
+          "./store-assets/ios/iphone-55-3.png"
+        ],
+        "ipadPro": [
+          "./store-assets/ios/ipad-pro-1.png",
+          "./store-assets/ios/ipad-pro-2.png"
+        ]
+      },
+      "appPreviews": []
+    },
+    "ageRating": {
+      "rating": "17+",
+      "advisories": [
+        "Frequent/Intense Mature/Suggestive Themes",
+        "Infrequent/Mild Profanity or Crude Humor"
+      ],
+      "attributes": [
+        "Users Interact Online",
+        "User Generated Content"
+      ]
+    },
+    "category": {
+      "primary": "Social Networking",
+      "secondary": "Photo & Video"
+    }
+  }
+}
