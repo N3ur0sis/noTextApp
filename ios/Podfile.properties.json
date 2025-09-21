@@ -1,0 +1,9 @@
+{
+  "expo.jsEngine": "hermes",
+  "EX_DEV_CLIENT_NETWORK_INSPECTOR": "true",
+  "newArchEnabled": "true",
+  "ios.useFrameworks": "static",
+  "ios.forceStaticLinking": "[]",
+  "apple.extraPods": "[{\"name\":\"FirebaseCoreInternal\",\"modular_headers\":true},{\"name\":\"GoogleUtilities\",\"modular_headers\":true}]",
+  "apple.privacyManifestAggregationEnabled": "true"
+}

@@ -10,6 +10,103 @@ interface RefreshRequest {
   refresh_token?: string
   device_id: string
   user_id?: string // Optional: for session restoration
+  old_device_id?: string // Optional: for device migration
+  new_device_id?: string // Optional: for device migration
+}
+
+// Device migration handler
+async function handleDeviceMigration(userId: string, oldDeviceId: string, newDeviceId: string) {
+  try {
+    console.log(`Attempting device migration for user ${userId}: ${oldDeviceId} -> ${newDeviceId}`)
+    
+    // Create admin client
+    const admin = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    )
+    
+    // Verify the user exists with the old device ID
+    const { data: existingUser, error: userError } = await admin
+      .from('users')
+      .select('id, pseudo, device_id, created_at')
+      .eq('id', userId)
+      .eq('device_id', oldDeviceId)
+      .single()
+    
+    if (userError || !existingUser) {
+      console.log('User not found or device ID mismatch:', userError)
+      return new Response(JSON.stringify({ 
+        success: false,
+        error: 'User not found or device ID mismatch' 
+      }), { 
+        status: 400, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      })
+    }
+    
+    // Check if new device ID is already in use by another user
+    const { data: conflictUser, error: conflictError } = await admin
+      .from('users')
+      .select('id, pseudo')
+      .eq('device_id', newDeviceId)
+      .neq('id', userId)
+      .single()
+    
+    if (!conflictError && conflictUser) {
+      console.log('New device ID already in use by another user:', conflictUser.pseudo)
+      return new Response(JSON.stringify({ 
+        success: false,
+        error: 'Device ID already in use by another user' 
+      }), { 
+        status: 409, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      })
+    }
+    
+    // Update the device ID
+    const { error: updateError } = await admin
+      .from('users')
+      .update({ 
+        device_id: newDeviceId,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId)
+      .eq('device_id', oldDeviceId)
+    
+    if (updateError) {
+      console.error('Failed to update device ID:', updateError)
+      return new Response(JSON.stringify({ 
+        success: false,
+        error: 'Failed to migrate device ID' 
+      }), { 
+        status: 500, 
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+      })
+    }
+    
+    console.log(`Device migration successful for user ${existingUser.pseudo}: ${oldDeviceId} -> ${newDeviceId}`)
+    
+    return new Response(JSON.stringify({ 
+      success: true, 
+      message: 'Device ID migrated successfully',
+      user: {
+        ...existingUser,
+        device_id: newDeviceId
+      }
+    }), { 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    })
+    
+  } catch (error) {
+    console.error('Device migration error:', error)
+    return new Response(JSON.stringify({ 
+      success: false,
+      error: 'Internal server error during migration' 
+    }), { 
+      status: 500, 
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' } 
+    })
+  }
 }
 
 serve(async (req) => {
@@ -19,7 +116,13 @@ serve(async (req) => {
   }
 
   try {
-    const { refresh_token, device_id, user_id } = await req.json() as RefreshRequest
+    const { refresh_token, device_id, user_id, old_device_id, new_device_id } = await req.json() as RefreshRequest
+
+    // Handle device migration request
+    if (user_id && old_device_id && new_device_id) {
+      console.log('Device migration requested for user:', user_id)
+      return await handleDeviceMigration(user_id, old_device_id, new_device_id)
+    }
 
     // Validate input
     if (!device_id) {

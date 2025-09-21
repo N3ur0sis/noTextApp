@@ -300,6 +300,21 @@ class NotificationManager {
     }
   }
 
+  // Set current user without full reinitialization
+  setCurrentUser(user) {
+    console.log('👤 [NOTIF_MANAGER] Setting current user:', user.pseudo)
+    this.currentUser = user
+    
+    // Update services with new user info
+    if (this.isInitialized) {
+      try {
+        notificationIntegration.setCurrentUser(user)
+      } catch (error) {
+        console.warn('⚠️ [NOTIF_MANAGER] Failed to update integration with new user:', error)
+      }
+    }
+  }
+
   // Clean up resources
   async cleanup() {
     console.log('🧹 [NOTIF_MANAGER] Cleaning up notification manager...')

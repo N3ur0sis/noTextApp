@@ -20,7 +20,7 @@ import {
 import AppStatusBar from '../components/AppStatusBar'
 import { BorderRadius, Colors, Spacing, Typography } from '../constants/Design'
 import { useAuthContext } from '../context/AuthContext'
-import { DeviceAuthService } from '../services/deviceAuthService'
+import { RobustDeviceAuthService } from '../services/robustDeviceAuthService'
 import {
     getKeyboardAvoidingProps,
     getResponsiveButtonHeight,
@@ -75,10 +75,28 @@ const AuthScreen = ({ onAuthSuccess = null }) => {
 
     setLoading(true)
     try {
-      const result = await DeviceAuthService.register(pseudo.trim(), parseInt(age), sexe || 'Autre')
+      console.log('📝 [AUTH_SCREEN] Starting robust registration for pseudo:', pseudo.trim())
       
-      // Update auth context with new account flag
-      await login(result.user, true) // true indicates this is a new account
+      const result = await RobustDeviceAuthService.register(pseudo.trim(), parseInt(age), sexe || 'Autre')
+      
+      console.log('✅ [AUTH_SCREEN] Registration result:', { 
+        userPseudo: result.user?.pseudo, 
+        isNewAccount: result.isNewAccount, 
+        isRecovery: result.isRecovery 
+      })
+      
+      // Update auth context with appropriate flags
+      const isNewAccount = result.isNewAccount || false
+      await login(result.user, isNewAccount)
+      
+      // Show different messages based on result type
+      if (result.isRecovery) {
+        Alert.alert(
+          'Compte récupéré', 
+          `Bienvenue à nouveau ${result.user.pseudo} ! Votre compte a été récupéré avec succès.`,
+          [{ text: 'OK' }]
+        )
+      }
       
       if (onAuthSuccess) {
         onAuthSuccess(result.user)
@@ -87,8 +105,20 @@ const AuthScreen = ({ onAuthSuccess = null }) => {
         router.push('/home')
       }
     } catch (error) {
-      console.error('Registration error:', error)
-      Alert.alert('Erreur', error.message || 'Impossible de créer le compte')
+      console.error('❌ [AUTH_SCREEN] Registration error:', error)
+      
+      // Show more user-friendly error messages
+      let errorMessage = error.message || 'Impossible de créer le compte'
+      
+      if (error.message?.includes('connexion internet')) {
+        errorMessage = 'Pas de connexion internet. Veuillez vérifier votre connexion et réessayer.'
+      } else if (error.message?.includes('pseudo')) {
+        errorMessage = 'Ce pseudo est déjà utilisé. Choisissez un autre pseudo.'
+      } else if (error.message?.includes('timeout')) {
+        errorMessage = 'La connexion a expiré. Veuillez vérifier votre connexion et réessayer.'
+      }
+      
+      Alert.alert('Erreur', errorMessage)
     } finally {
       setLoading(false)
     }
