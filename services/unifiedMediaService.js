@@ -5,11 +5,12 @@
  */
 
 import { decode } from 'base64-arraybuffer'
-import * as FileSystem from 'expo-file-system'
+import * as FileSystem from 'expo-file-system/legacy'
+import { File, Directory } from 'expo-file-system'
 import * as VideoThumbnails from 'expo-video-thumbnails'
 import { supabase } from './supabaseClient'
 
-// Unified cache directories
+// Unified cache directories using legacy path for compatibility
 const CACHE_DIRECTORIES = {
   images: `${FileSystem.cacheDirectory}images/`,
   videos: `${FileSystem.cacheDirectory}videos/`,
@@ -30,9 +31,9 @@ const senderLocalIndex = {
 async function ensureSubdirsForFile(fullPath) {
   const parts = fullPath.split('/');
   parts.pop(); // remove filename
-  const dir = parts.join('/') + '/';
-  const info = await FileSystem.getInfoAsync(dir);
-  if (!info.exists) await FileSystem.makeDirectoryAsync(dir, { intermediates: true });
+  const dirPath = parts.join('/') + '/';
+  const dir = new Directory(dirPath);
+  if (!dir.exists) await dir.create({ intermediates: true });
 }
 
 // Extrait l'objectKey d'une URL signée Supabase
@@ -78,12 +79,28 @@ class UnifiedMediaService {
     if (this.initialized) return
     
     try {
-      // Create cache directories
-      for (const [type, dir] of Object.entries(CACHE_DIRECTORIES)) {
-        const dirInfo = await FileSystem.getInfoAsync(dir)
-        if (!dirInfo.exists) {
-          await FileSystem.makeDirectoryAsync(dir, { intermediates: true })
-          if (__DEV__) console.log(`📁 [UNIFIED_MEDIA] Created ${type} cache directory`)
+      // Create cache directories - prioritize compatibility
+      for (const [type, dirPath] of Object.entries(CACHE_DIRECTORIES)) {
+        try {
+          // Check if directory exists using legacy API (more reliable)
+          const dirInfo = await FileSystem.getInfoAsync(dirPath)
+          if (!dirInfo.exists) {
+            // Create directory using legacy API for better compatibility
+            await FileSystem.makeDirectoryAsync(dirPath, { intermediates: true })
+            if (__DEV__) console.log(`📁 [UNIFIED_MEDIA] Created ${type} cache directory`)
+          }
+        } catch (error) {
+          // If legacy fails, try new API as fallback (for future compatibility)
+          try {
+            const dir = new Directory(dirPath)
+            if (!dir.exists) {
+              await dir.create({ intermediates: true })
+              if (__DEV__) console.log(`📁 [UNIFIED_MEDIA] Created ${type} cache directory (new API)`)
+            }
+          } catch (newApiError) {
+            // Silent fail - app can still work without cache directories
+            if (__DEV__) console.warn(`⚠️ [UNIFIED_MEDIA] Could not create ${type} cache directory, will use temp storage`)
+          }
         }
       }
       
@@ -449,31 +466,31 @@ class UnifiedMediaService {
   async getLocalPathFromObjectKey(objectKey, type = 'image', priority = 'normal') {
     // 1) Le sender a peut-être déjà le fichier local -> réutiliser
     if (type === 'image' && senderLocalIndex.media.has(objectKey)) {
-      const local = senderLocalIndex.media.get(objectKey);
-      const info = await FileSystem.getInfoAsync(local);
-      if (info.exists) {
+      const localPath = senderLocalIndex.media.get(objectKey);
+      const file = new File(localPath);
+      if (file.exists) {
         if (__DEV__ && priority === 'notification') {
           console.log(`🎯 [UNIFIED_MEDIA] Using sender local cache for ${objectKey}`);
         }
-        return local;
+        return localPath;
       }
     }
     if (type === 'thumbnail' && senderLocalIndex.thumbs.has(objectKey)) {
-      const local = senderLocalIndex.thumbs.get(objectKey);
-      const info = await FileSystem.getInfoAsync(local);
-      if (info.exists) {
+      const localPath = senderLocalIndex.thumbs.get(objectKey);
+      const file = new File(localPath);
+      if (file.exists) {
         if (__DEV__ && priority === 'notification') {
           console.log(`🎯 [UNIFIED_MEDIA] Using sender local thumbnail cache for ${objectKey}`);
         }
-        return local;
+        return localPath;
       }
     }
 
     // 2) Chemin cache local ciblé (on garde la hiérarchie)
     const baseDir = type === 'thumbnail' ? CACHE_DIRECTORIES.thumbnails : CACHE_DIRECTORIES.images;
     const localPath = `${baseDir}${objectKey}`;
-    const already = await FileSystem.getInfoAsync(localPath);
-    if (already.exists) {
+    const file = new File(localPath);
+    if (file.exists) {
       if (__DEV__ && priority === 'notification') {
         console.log(`🎯 [UNIFIED_MEDIA] File already cached locally for ${objectKey}`);
       }

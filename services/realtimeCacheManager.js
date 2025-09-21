@@ -1089,7 +1089,7 @@ class OptimizedRealtimeCacheManager extends EnhancedEventEmitter {
   async preloadMessageMedia(message) {
     try {
       const { unifiedMediaService } = await import('./unifiedMediaService')
-      const FileSystem = await import('expo-file-system')
+      const FileSystem = await import('expo-file-system/legacy')
       
       // CRITICAL FIX: Check if media is already cached/downloading to prevent redundant operations
       const mediaUrl = message.media_url

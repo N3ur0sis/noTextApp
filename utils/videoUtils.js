@@ -2,8 +2,17 @@
 // Optimized for iOS and Android with aggressive compression for minimal egress costs
 // Uses react-native-compressor for WhatsApp-like compression without FFmpeg overhead
 
-import { Video } from 'react-native-compressor';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+
+// Safely import react-native-compressor with Expo Go fallback
+let Video = null;
+try {
+  // This will fail in Expo Go but work in dev builds and production
+  const compressor = require('react-native-compressor');
+  Video = compressor.Video;
+} catch (error) {
+  console.warn('📱 [VIDEO_COMPRESSION] react-native-compressor not available (Expo Go), using fallback');
+}
 
 /**
  * Production-ready video compression with aggressive settings
@@ -17,6 +26,13 @@ import * as FileSystem from 'expo-file-system';
 export const compressVideo = async (videoUri, onProgress = null, options = {}) => {
   try {
     console.log('🗜️ [VIDEO_COMPRESSION] Starting production compression...');
+    
+    // Fallback for Expo Go - return original video without compression
+    if (!Video) {
+      console.log('📱 [VIDEO_COMPRESSION] Compression not available in Expo Go, returning original video');
+      if (onProgress) onProgress(100);
+      return videoUri;
+    }
     
     // Validate input
     if (!videoUri || !videoUri.startsWith('file://')) {
