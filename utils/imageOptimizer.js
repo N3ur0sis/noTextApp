@@ -7,18 +7,18 @@ import * as FileSystem from 'expo-file-system/legacy'
 import * as ImageManipulator from 'expo-image-manipulator'
 import { Platform } from 'react-native'
 
-// Platform-specific optimization settings - AGGRESSIVE compression for messaging app
+// Platform-specific optimization settings - Enhanced quality with smart compression
 const OPTIMIZATION_SETTINGS = {
   android: {
-    maxWidth: 800,       // Much smaller - perfect for mobile messaging
-    maxHeight: 1200,     // Reasonable height limit for portraits
-    quality: 0.6,        // Aggressive compression while maintaining readability
+    maxWidth: 1920,      // Higher resolution for better quality
+    maxHeight: 2880,     // Maintain aspect ratio for high-res displays
+    quality: 0.85,       // Higher quality with minimal compression
     format: ImageManipulator.SaveFormat.JPEG
   },
   ios: {
-    maxWidth: 800,       // Consistent with Android - smaller files
-    maxHeight: 1200,     // Same height limit
-    quality: 0.65,       // Slightly higher for iOS (better JPEG encoder)
+    maxWidth: 1920,      // Consistent high resolution
+    maxHeight: 2880,     // Support high-DPI displays
+    quality: 0.90,       // Even higher quality for iOS (superior JPEG encoder)
     format: ImageManipulator.SaveFormat.JPEG
   }
 }
@@ -44,9 +44,9 @@ export const optimizeImageForUpload = async (uri, mediaType = 'photo') => {
     
     console.log(`📸 Original image: ${fileSizeMB.toFixed(2)}MB`)
     
-    // ALWAYS optimize images > 50KB for messaging app efficiency
-    if (fileSizeMB < 0.05) {
-      console.log(`⚡ Skipping optimization - file tiny (< 50KB)`)
+    // Only optimize very large images to preserve quality
+    if (fileSizeMB < 0.5) { // Only optimize files > 500KB
+      console.log(`⚡ Skipping optimization - file manageable (< 500KB)`)
       return uri
     }
     
@@ -80,15 +80,15 @@ export const optimizeImageForUpload = async (uri, mediaType = 'photo') => {
     
     console.log(`📐 After resize: ${resizedSizeMB.toFixed(2)}MB`)
     
-    // STEP 2: If still > 100KB, apply more aggressive compression
-    if (resizedSizeMB > 0.1) {
-      console.log(`🔄 File still large (${resizedSizeMB.toFixed(2)}MB), applying extra compression...`)
+    // STEP 2: If still very large (> 2MB), apply smart compression
+    if (resizedSizeMB > 2.0) {
+      console.log(`🔄 File still large (${resizedSizeMB.toFixed(2)}MB), applying smart compression...`)
       
       finalResult = await ImageManipulator.manipulateAsync(
         resizedResult.uri,
         [], // No additional transforms
         {
-          compress: 0.4, // Very aggressive compression
+          compress: 0.75, // Moderate compression to maintain quality
           format: settings.format,
           base64: false
         }
@@ -97,7 +97,7 @@ export const optimizeImageForUpload = async (uri, mediaType = 'photo') => {
       // Final check
       const finalInfo = await FileSystem.getInfoAsync(finalResult.uri)
       const finalSizeMB = finalInfo.size / (1024 * 1024)
-      console.log(`🎯 After extra compression: ${finalSizeMB.toFixed(2)}MB`)
+      console.log(`🎯 After smart compression: ${finalSizeMB.toFixed(2)}MB`)
     }
     
     // Check the final optimized file size
@@ -108,9 +108,9 @@ export const optimizeImageForUpload = async (uri, mediaType = 'photo') => {
     const optimizationTime = Date.now() - startTime
     console.log(`✅ Image optimized in ${optimizationTime}ms: ${fileSizeMB.toFixed(2)}MB → ${optimizedSizeMB.toFixed(2)}MB (${reductionPercent}% reduction)`)
     
-    // Warn if still large for messaging
-    if (optimizedSizeMB > 0.15) {
-      console.warn(`⚠️ Final image still large: ${optimizedSizeMB.toFixed(2)}MB - consider further optimization`)
+    // Info about final size (no warning for quality preservation)
+    if (optimizedSizeMB > 1.0) {
+      console.log(`ℹ️ Final image size: ${optimizedSizeMB.toFixed(2)}MB - quality preserved`)
     }
     
     return finalResult.uri

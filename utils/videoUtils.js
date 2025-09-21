@@ -48,14 +48,14 @@ export const compressVideo = async (videoUri, onProgress = null, options = {}) =
     const originalSizeMB = (originalInfo.size / (1024 * 1024)).toFixed(2);
     console.log(`📁 [VIDEO_COMPRESSION] Original size: ${originalSizeMB}MB`);
 
-    // Production compression settings - aggressive for maximum size reduction
+    // Enhanced compression settings - balanced quality and size optimization
     const compressionConfig = {
-      compressionMethod: 'auto', // WhatsApp-like automatic compression
-      minimumFileSizeForCompress: 0, // Compress all videos regardless of size
+      compressionMethod: 'auto', // Intelligent automatic compression
+      minimumFileSizeForCompress: 0, // Compress all videos for consistency
       
-      // Manual settings for maximum compression (fallback if auto fails)
-      maxSize: 640, // Max dimension (height for portrait, width for landscape)
-      bitrate: 400000, // Very aggressive bitrate: 400kbps vs typical 2000kbps
+      // Enhanced manual settings for quality preservation
+      maxSize: 720, // Higher quality max dimension
+      bitrate: 1000000, // Better quality bitrate: 1Mbps vs aggressive 400kbps
       
       // Advanced options
       getCancellationId: options.getCancellationId || null,
@@ -259,27 +259,27 @@ export const compressVideoAuto = async (videoUri, options = {}) => {
       let compressionSettings = {};
 
       if (qualityPreference === 'size') {
-        // Maximum compression for smallest file size
+        // Moderate compression with quality preservation
         compressionSettings = {
           customSettings: {
-            maxSize: 480, // Very small max dimension
-            bitrate: 300000 // Very low bitrate: 300kbps
+            maxSize: 720, // Higher quality resolution
+            bitrate: 800000 // Better bitrate for quality: 800kbps
           }
         };
       } else if (qualityPreference === 'quality') {
-        // Balanced compression favoring quality
+        // High quality compression
         compressionSettings = {
           customSettings: {
-            maxSize: 720, // Higher max dimension
-            bitrate: 800000 // Higher bitrate: 800kbps
+            maxSize: 1080, // High definition resolution
+            bitrate: 1500000 // High quality bitrate: 1.5Mbps
           }
         };
       } else {
-        // Balanced compression (default)
+        // Enhanced balanced compression (default)
         compressionSettings = {
           customSettings: {
-            maxSize: 640, // Standard max dimension
-            bitrate: 500000 // Moderate bitrate: 500kbps
+            maxSize: 720, // Good quality resolution
+            bitrate: 1000000 // Good quality bitrate: 1Mbps
           }
         };
       }
@@ -322,10 +322,10 @@ export const rotateVideoToPortrait = async (uri, cameraType) => {
 
 // Export configuration constants for external use
 export const VIDEO_COMPRESSION_CONFIG = {
-  DEFAULT_BITRATE: 400000, // 400kbps for maximum compression
-  QUALITY_BITRATE: 800000, // 800kbps for quality-focused compression
-  MAX_SIZE: 640, // Default max dimension
-  TARGET_SIZE_MB: 5, // Default target file size
+  DEFAULT_BITRATE: 1000000, // 1Mbps for balanced quality/size
+  QUALITY_BITRATE: 1500000, // 1.5Mbps for quality-focused compression
+  MAX_SIZE: 720, // Enhanced default max dimension
+  TARGET_SIZE_MB: 8, // Higher target file size for better quality
   COMPRESSION_TIMEOUT: 60000 // 60 seconds timeout
 };
 

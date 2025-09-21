@@ -74,6 +74,8 @@ const CameraScreen = () => {
   const [isCameraReady, setIsCameraReady] = useState(false)
   const [recordingMode, setRecordingMode] = useState('photo') // 'photo' or 'video' - determines tap behavior
   const [isRecordingMuted, setIsRecordingMuted] = useState(true) // Whether to record audio or not
+  const [cameraError, setCameraError] = useState(null) // Track camera mount errors
+  const [isModeSwitching, setIsModeSwitching] = useState(false) // Track camera mode switching state
   
   // Timer functionality state
   const [timerSeconds, setTimerSeconds] = useState(0) // Timer delay: 0, 5, or 10 seconds
@@ -282,9 +284,13 @@ const CameraScreen = () => {
   // Remove the focus listener as it might cause conflicts
   // Instead, rely on proper mount/unmount lifecycle
 
-  // Simplified camera initialization - state-driven, no complex timing
+  // Enhanced camera initialization with better error handling
   const initializeCamera = async () => {
     try {
+      console.log('📷 [CAMERA] Starting camera initialization...')
+      
+      // Clear any previous camera errors
+      setCameraError(null)
       
       // Simple state reset without cleanup that could interfere
       setIsCameraReady(false)
@@ -294,6 +300,7 @@ const CameraScreen = () => {
       setMediaType(null)
       setCaption('')
       setCapturedFromFrontCamera(false) // Reset front camera flag
+      setIsModeSwitching(false)
       
       // Reset zoom state
       setZoom(0)
@@ -317,24 +324,28 @@ const CameraScreen = () => {
       setCameraMode(Platform.OS === 'android' ? 'picture' : 'video') // Android always uses picture mode for instant capture
       
       // Camera will be ready when CameraView mounts and calls onCameraReady
-
+      console.log('📷 [CAMERA] Camera initialization completed successfully')
       
     } catch (error) {
       console.error('❌ Camera initialization error:', error)
+      setCameraError(error)
       setIsCameraReady(false)
     }
   }
 
-  // Simplified cleanup function - only clean what's necessary
+  // Enhanced cleanup function with better safety checks
   const cleanupCamera = () => {
-
+    console.log('📷 [CAMERA] Starting cleanup process...')
     
-    // Stop any ongoing recording
-    if (isRecordingActive) {
+    // Stop any ongoing recording with proper null checks
+    if (isRecordingActive && cameraRef.current) {
       try {
-        cameraRef.current?.stopRecording().catch(console.warn)
+        console.log('📷 [CAMERA] Stopping active recording during cleanup')
+        cameraRef.current.stopRecording().catch(error => {
+          console.warn('⚠️ [CAMERA] Error stopping recording during cleanup:', error)
+        })
       } catch (error) {
-
+        console.warn('⚠️ [CAMERA] Sync error stopping recording during cleanup:', error)
       }
     }
     
@@ -344,7 +355,13 @@ const CameraScreen = () => {
     // Reset recording state
     resetRecordingState()
     
-
+    // Clear any pending recording promises to prevent memory leaks
+    if (recordingPromiseRef.current) {
+      recordingPromiseRef.current = null
+      console.log('📷 [CAMERA] Cleared pending recording promise')
+    }
+    
+    console.log('📷 [CAMERA] Cleanup completed')
   }
 
   // Centralized timer cleanup
@@ -369,46 +386,66 @@ const CameraScreen = () => {
     // Camera will handle mode internally, no artificial delays needed
   }, [cameraMode])
 
-  // Ultra-fast Android-optimized picture taking
+  // Enhanced Android-optimized picture taking with better error handling
   const takePicture = useCallback(async () => {
-    if (!cameraRef.current || !isCameraReady || isRecordingActive || isCapturingPhoto) {
-      console.log('❌ Camera not ready, already recording, or already capturing photo')
+    if (!cameraRef.current || !isCameraReady || isRecordingActive || isCapturingPhoto || isModeSwitching) {
+      console.log('❌ Camera not ready, already recording, capturing photo, or switching modes')
       return
     }
 
     setIsCapturingPhoto(true) // Prevent multiple simultaneous captures
 
     try {
-      console.log('📸 Starting fast Android picture capture...')
+      console.log('📸 [CAMERA] Starting enhanced picture capture...')
+      
+      // Android: Ensure we're in picture mode before capture
+      if (Platform.OS === 'android' && cameraMode !== 'picture') {
+        console.log('🤖 [CAMERA] Switching to picture mode before capture')
+        setIsModeSwitching(true)
+        setCameraMode('picture')
+        await new Promise(resolve => setTimeout(resolve, 300)) // Wait for mode switch
+        setIsModeSwitching(false)
+      }
+      
       // Immediate haptic feedback for responsiveness
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
-      // Optimized capture options for full screen aspect ratio and best quality
+      // Optimized capture options for maximum quality and minimal compression
       const captureOptions = Platform.OS === 'android' ? {
-        quality: 1.0, // Maximum quality for capture
+        quality: 1.0, // Maximum quality to preserve original image data
         base64: false,
-        skipProcessing: false, // Important : false pour garder l'exif
+        skipProcessing: false, // Important: false pour garder l'exif
         exif: true, // Important pour avoir les infos d'orientation
         imageType: 'jpg',
         shutterSound: false,
         mirror: false,
-        // Android: Force full screen aspect ratio to match display
-        aspectRatio: '16:9', // Full screen ratio for Android
-        pictureSize: 'max', // Use maximum available resolution
+        // Android: Enhanced stability and quality settings
+        fastMode: false, // Disable fast mode for better stability
+        fixOrientation: true, // Let camera handle orientation
+        forceUpOrientation: false, // Don't force orientation changes
+        // Quality preservation settings
+        compress: 0.95, // Minimal compression during capture
       } : {
-        quality: 1.0, // Maximum quality for capture
+        quality: 1.0, // Maximum quality for iOS as well
         base64: false,
-        skipProcessing: false, // Important : false pour garder l'exif
+        skipProcessing: false, // Important: false pour garder l'exif
         exif: true, // Important pour avoir les infos d'orientation
         shutterSound: false,
         mirror: false,
-        // iOS: Let the system handle aspect ratio based on screen
+        // iOS: Enhanced quality settings
+        compress: 0.95, // Minimal compression during capture
+        // Disable iOS auto-enhancement/processing
+        autoRedEyeReduction: false, // Disable automatic red-eye correction
+        isImageMirror: false, // Prevent unwanted mirroring
       }
-      console.log(`${Platform.OS === 'android' ? '🤖' : '🍎'} Taking picture with modern options:`, captureOptions)
-      // Use modern takePictureAsync with generous timeout for Android compatibility
+      console.log(`${Platform.OS === 'android' ? '🤖' : '🍎'} [CAMERA] Taking picture with enhanced options:`, captureOptions)
+      
+      // Enhanced capture with better timeout and error handling
       const capturePromise = cameraRef.current.takePictureAsync(captureOptions)
+      const timeoutDuration = Platform.OS === 'android' ? 20000 : 15000 // Longer timeout for Android
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Photo capture timeout')), 15000)
+        setTimeout(() => reject(new Error('Photo capture timeout - camera may be busy or unresponsive')), timeoutDuration)
       })
+      
       const photo = await Promise.race([capturePromise, timeoutPromise])
       console.log('📷 Photo capture result:', { 
         hasUri: !!photo?.uri, 
@@ -474,18 +511,30 @@ const CameraScreen = () => {
       // Success haptic feedback
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success)
     } catch (error) {
-      console.error('💥 Error taking picture:', error)
+      console.error('💥 [CAMERA] Error taking picture:', error)
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error)
-      const errorMessage = Platform.OS === 'android' 
-        ? error.message?.includes('timeout') 
-          ? 'Capture trop lent sur Android. Réessayez.'
-          : 'Erreur lors de la prise de photo Android. Réessayez.'
-        : 'Impossible de prendre la photo. Réessayez.'
-      Alert.alert('Erreur', errorMessage)
+      
+      // Enhanced error handling with specific messages
+      let errorMessage = 'Impossible de prendre la photo. Réessayez.'
+      
+      if (Platform.OS === 'android') {
+        if (error.message?.includes('timeout')) {
+          errorMessage = 'Capture trop lente. Vérifiez que la caméra n\'est pas utilisée par une autre app.'
+        } else if (error.message?.includes('busy') || error.message?.includes('occupied')) {
+          errorMessage = 'Caméra occupée. Fermez les autres apps utilisant la caméra et réessayez.'
+        } else if (error.message?.includes('permission')) {
+          errorMessage = 'Permissions caméra insuffisantes. Vérifiez les paramètres.'
+        } else {
+          errorMessage = 'Erreur caméra Android. Redémarrez l\'app si le problème persiste.'
+        }
+      }
+      
+      Alert.alert('Erreur de capture', errorMessage)
     } finally {
       setIsCapturingPhoto(false)
+      setIsModeSwitching(false)
     }
-  }, [isCameraReady, isRecordingActive, isCapturingPhoto, type])
+  }, [isCameraReady, isRecordingActive, isCapturingPhoto, isModeSwitching, cameraMode, type])
 
   // Optimized media mode cycling with enhanced haptics
   const cycleMediaMode = useCallback(() => {
@@ -620,36 +669,42 @@ const CameraScreen = () => {
     }
   }, [isCameraReady, isRecording, isRecordingActive, isCapturingPhoto, isTimerActive, recordingMode, startTimerCountdown, startVideoRecording, stopRecording])
 
-  // Smart press handlers with platform-specific session management
+  // Enhanced press handlers with better state management and error prevention
   const handlePressIn = useCallback(() => {
-    if (!isCameraReady || isRecordingActive) return
+    if (!isCameraReady || isRecordingActive || isModeSwitching || isCapturingPhoto) return
     
     // Initial haptic feedback
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light)
     
-    // Set up long press timer with platform-specific video session preparation
+    // Set up long press timer with enhanced platform-specific session management
     longPressTimer.current = setTimeout(async () => {
-      // Double-check that we're still in a valid state for recording
-      if (!isRecordingActive && isCameraReady) {
+      // Triple-check that we're still in a valid state for recording
+      if (!isRecordingActive && isCameraReady && !isModeSwitching && !isCapturingPhoto) {
         setIsLongPressing(true)
         
         // Platform-specific video session preparation
         if (Platform.OS === 'android') {
           // Android: Switch from picture to video mode during long press delay
-          console.log('🤖 Android: Preparing video session during long press')
+          console.log('🤖 [CAMERA] Android: Preparing video session during long press')
+          setIsModeSwitching(true)
           setCameraMode('video')
-          await new Promise(resolve => setTimeout(resolve, 150)) // Android needs time for mode switch
+          // Extended wait for Android mode switch to complete properly
+          await new Promise(resolve => setTimeout(resolve, 250))
+          setIsModeSwitching(false)
         } else {
           // iOS: Already in video mode, no switching needed
-          console.log('🍎 iOS: Already in video mode, starting recording')
+          console.log('🍎 [CAMERA] iOS: Already in video mode, starting recording')
         }
         
-        // Stronger haptic for video start
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
-        startRecording()
+        // Final check before starting recording
+        if (isCameraReady && !isRecordingActive) {
+          // Stronger haptic for video start
+          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy)
+          startRecording()
+        }
       }
     }, 600) // 600ms delay before starting video - we hide Android session switch in this gap
-  }, [isCameraReady, isRecordingActive, startRecording])
+  }, [isCameraReady, isRecordingActive, isModeSwitching, isCapturingPhoto, startRecording])
 
   const handlePressOut = useCallback(() => {
     // Clear the long press timer if it's still running
@@ -713,16 +768,16 @@ const CameraScreen = () => {
             console.warn('⚠️ Could not get video metadata:', metadataError)
           }
           
-          // Production-ready video compression with aggressive settings
-          console.log('🗜️ Starting production video compression...')
+          // Enhanced quality video compression with smart optimization
+          console.log('🗜️ Starting enhanced quality video compression...')
           finalVideoUri = await compressVideoAuto(video.uri, {
             onProgress: (progress) => {
               console.log(`📊 Video compression: ${progress}%`)
               setCompressionProgress(progress)
-              setLoadingStage(`Compression de la vidéo... ${Math.round(progress)}%`)
+              setLoadingStage(`Optimisation vidéo... ${Math.round(progress)}%`)
             },
-            targetSizeMB: 3, // Very aggressive target: 3MB max
-            qualityPreference: 'size', // Prioritize smallest file size
+            targetSizeMB: 8, // Higher target for better quality: 8MB max
+            qualityPreference: 'quality', // Prioritize quality preservation
             enableBackgroundTask: true // Allow compression in background
           })
           console.log('✅ Production video compression completed')
@@ -819,14 +874,24 @@ const CameraScreen = () => {
     }
   }, [])
 
-  // Ultra-fast recording start function with enhanced haptics
+  // Enhanced recording start function with better state management
   const startRecording = useCallback(async () => {
-    if (!cameraRef.current || !isCameraReady || isRecordingActive) {
+    if (!cameraRef.current || !isCameraReady || isRecordingActive || isModeSwitching) {
+      console.log('❌ [CAMERA] Cannot start recording: invalid state')
       return
     }
 
     try {
-      // No need to switch modes since we start in video mode by default
+      console.log('🎬 [CAMERA] Starting recording with enhanced stability...')
+      
+      // Ensure camera is in video mode (especially for Android)
+      if (Platform.OS === 'android' && cameraMode !== 'video') {
+        console.log('🤖 [CAMERA] Final mode check: switching to video mode')
+        setIsModeSwitching(true)
+        setCameraMode('video')
+        await new Promise(resolve => setTimeout(resolve, 200))
+        setIsModeSwitching(false)
+      }
       
       // Set recording state immediately
       recordStart.current = Date.now()
@@ -850,31 +915,32 @@ const CameraScreen = () => {
         useNativeDriver: false,
       }).start()
       
-      // Start recording with AGGRESSIVE compression settings for minimum file size
+      // Enhanced recording options with validated properties only
       const recordingOptions = Platform.OS === 'android' ? {
-        maxDuration: 60, // 60 seconds max recording
+        maxDuration: 60,
         mute: false,
-        quality: 'medium', // Changed from 'high' to 'medium' for smaller files
-        // AGGRESSIVE COMPRESSION for maximum egress reduction
-        codec: 'h264', // Force H.264 for broad compatibility
-        videoBitRate: 800000, // Reduced from 2M to 800k for much smaller files
-        audioBitRate: 64000, // Reduced from 128k to 64k for smaller audio
-        mirror: type === 'front', // Mirror front camera videos to match expected orientation
+        quality: 'high', // Valid quality enum value
+        // Remove potentially invalid props that cause crashes
+        // Keep only core supported properties for Android
+        mirror: type === 'front',
       } : {
-        maxDuration: 60, // 60 seconds max recording
+        maxDuration: 60,
         mute: false,
-        quality: 'medium', // Changed from 'high' to 'medium' for smaller files
-        // iOS will use system defaults but we can still influence quality
-        mirror: type === 'front', // Mirror front camera videos to match expected orientation
+        quality: 'high', // Valid quality enum value
+        // Keep only core supported properties for iOS
+        mirror: type === 'front',
       }
       
+      console.log(`${Platform.OS === 'android' ? '🤖' : '🍎'} [CAMERA] Starting recording with options:`, recordingOptions)
       recordingPromiseRef.current = cameraRef.current.recordAsync(recordingOptions)
         
     } catch (error) {
-      console.error('🔥 Error in startRecording:', error)
+      console.error('🔥 [CAMERA] Error in startRecording:', error)
+      // Clean up states on error
+      setIsModeSwitching(false)
       handleRecordingError(error)
     }
-  }, [isCameraReady, isRecordingActive, handleRecordingError, type])
+  }, [isCameraReady, isRecordingActive, isModeSwitching, cameraMode, handleRecordingError, type])
 
   // New dedicated video recording function for tap-to-record mode
   const startVideoRecording = useCallback(async () => {
@@ -911,20 +977,19 @@ const CameraScreen = () => {
         useNativeDriver: false,
       }).start()
       
-      // Start recording with mute option - increased duration for background upload
+      // Enhanced recording options with validated properties only
       const recordingOptions = Platform.OS === 'android' ? {
-        maxDuration: 60, // Increased to 60 seconds since background upload handles long videos
+        maxDuration: 60,
         mute: isRecordingMuted,
-        quality: 'medium', // Changed from 'high' to 'medium' for smaller files
-        codec: 'h264',
-        videoBitRate: 800000, // Reduced from 2M to 800k for much smaller files
-        audioBitRate: isRecordingMuted ? 0 : 64000, // Reduced from 128k to 64k for smaller audio
-        mirror: type === 'front', // Mirror front camera videos to match expected orientation
+        quality: 'high', // Valid enum value
+        // Remove potentially invalid props - keep only core supported ones
+        mirror: type === 'front',
       } : {
-        maxDuration: 60, // Increased to 60 seconds since background upload handles long videos
+        maxDuration: 60,
         mute: isRecordingMuted,
-        quality: 'medium', // Changed from 'high' to 'medium' for smaller files
-        mirror: type === 'front', // Mirror front camera videos to match expected orientation
+        quality: 'high', // Valid enum value
+        mirror: type === 'front',
+        // iOS may support additional properties, but keeping minimal for reliability
       }
       
       recordingPromiseRef.current = cameraRef.current.recordAsync(recordingOptions)
@@ -935,19 +1000,22 @@ const CameraScreen = () => {
     }
   }, [isCameraReady, isRecordingActive, isRecordingMuted, cameraMode, handleRecordingError, type])
 
-  // Ultra-fast and robust recording stop function
+  // Enhanced robust recording stop function with better error recovery
   const stopRecording = useCallback(async () => {
     if (!cameraRef.current || !isRecordingActive) {
+      console.log('❌ [CAMERA] Cannot stop recording: camera ref missing or not recording')
       return
     }
 
     try {
+      console.log('⏹️ [CAMERA] Stopping recording with enhanced error handling...')
+      
       // Ensure encoder had enough time (minimum duration)
       const elapsed = Date.now() - recordStart.current
       
       if (elapsed < MIN_VIDEO_MS) {
         const waitTime = MIN_VIDEO_MS - elapsed + 200 // Add extra buffer for Android
-        console.log(`📹 Waiting ${waitTime}ms for minimum recording time...`)
+        console.log(`📹 [CAMERA] Waiting ${waitTime}ms for minimum recording time...`)
         await new Promise(resolve => setTimeout(resolve, waitTime))
       }
       
@@ -962,21 +1030,31 @@ const CameraScreen = () => {
       // Enhanced haptic feedback for recording stop
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium)
       
-      // Try to stop recording with enhanced error handling
+      // Enhanced stop recording with better error handling
       try {
-        await cameraRef.current.stopRecording()
+        if (cameraRef.current && typeof cameraRef.current.stopRecording === 'function') {
+          await cameraRef.current.stopRecording()
+          console.log('✅ [CAMERA] Successfully called stopRecording')
+        } else {
+          console.warn('⚠️ [CAMERA] stopRecording method not available on camera ref')
+        }
       } catch (stopError) {
-        console.error('⚠️ Error calling stopRecording:', stopError)
+        console.error('⚠️ [CAMERA] Error calling stopRecording:', stopError)
         // Don't throw here, the promise might still resolve
       }
       
       // Check if we have a valid recording promise
       if (!recordingPromiseRef.current) {
-        throw new Error('No recording promise available')
+        throw new Error('No recording promise available - recording may have failed to start')
       }
       
-      // Wait for recording to complete - no timeout needed since background upload handles long videos
-      const video = await recordingPromiseRef.current
+      // Wait for recording to complete with timeout for safety
+      const recordingTimeout = Platform.OS === 'android' ? 10000 : 5000 // Longer timeout for Android
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Recording stop timeout')), recordingTimeout)
+      })
+      
+      const video = await Promise.race([recordingPromiseRef.current, timeoutPromise])
       
       recordingPromiseRef.current = null
       
@@ -985,11 +1063,11 @@ const CameraScreen = () => {
         throw new Error('Invalid video result - no URI provided')
       }
       
-      console.log('✅ Video recording completed successfully:', video.uri)
+      console.log('✅ [CAMERA] Video recording completed successfully:', video.uri)
       handleRecordingFinished(video)
       
     } catch (error) {
-      console.error('💥 Error stopping recording:', error)
+      console.error('💥 [CAMERA] Error stopping recording:', error)
       handleRecordingError(error)
     }
   }, [isRecordingActive, handleRecordingFinished, handleRecordingError, MIN_VIDEO_MS])
@@ -1072,13 +1150,13 @@ const CameraScreen = () => {
           const originalSizeMB = originalInfo.size / (1024 * 1024)
           console.log(`📹 [CAMERA] Original video: ${originalSizeMB.toFixed(2)}MB`)
           
-          // Apply production-grade compression with progress tracking
+          // Apply enhanced quality compression with progress tracking
           const compressedUri = await compressVideoAuto(optimizedMediaUri, {
             onProgress: (progress) => {
-              setLoadingStage(`Compression vidéo... ${Math.round(progress)}%`)
+              setLoadingStage(`Optimisation vidéo... ${Math.round(progress)}%`)
             },
-            targetSizeMB: 2, // Very aggressive target for upload: 2MB max
-            qualityPreference: 'size', // Maximum compression
+            targetSizeMB: 6, // Balanced target for upload: 6MB max
+            qualityPreference: 'quality', // Quality preservation
             enableBackgroundTask: true
           })
           
@@ -1628,42 +1706,56 @@ const CameraScreen = () => {
                 ]}
                 facing={type}
                 mode={cameraMode}
-                zoom={zoom} // Apply zoom to camera
+                zoom={zoom}
                 ref={cameraRef}
-                // Modern torch control using flash prop
-                flash="off" // No flash/torch (modern alternative to enableTorch)
-                autofocus="on" // Modern autofocus for quality
-                // Modern Android optimizations using latest Expo Camera API
-                {...(Platform.OS === 'android' && { 
-                  // Remove deprecated props and use modern alternatives
-                  autofocus: 'on', // Modern autofocus (replaces autoFocus)
-                  flash: 'off', // Modern flash control
-                  // Keep compatible props that work well
-                  faceDetectionMode: 'none', // Disable face detection for speed
-                  barCodeScannerSettings: { barCodeTypes: [] }, // Disable barcode scanning
-                  // Android-specific settings for best quality and full screen
-                  pictureSize: '1920x1080', // Try to force 16:9 aspect ratio
-                  ratio: '16:9', // Set camera preview ratio to match screen
-                })}
-                // iOS modern settings (compatible with latest Expo Camera)
-                {...(Platform.OS === 'ios' && {
-                  // Keep iOS-specific optimizations if needed
-                  autofocus: 'on', // Ensure consistent autofocus behavior
-                })}
+                // Ultra-minimal CameraView props - only essential validated ones
+                flash="off"
+                // Remove autofocus prop since it might expect boolean, not string
+                // Keep only the most basic props that are guaranteed to work
+                // All quality/feature settings handled at capture/record time
                 onCameraReady={() => {
-                  console.log('📷 Camera ready callback triggered!')
+                  console.log('📷 [CAMERA] Camera ready callback triggered!')
                   if (!isCameraReady) {
-                    console.log(`${Platform.OS === 'android' ? '🤖' : '🍎'} Camera ready with optimized settings!`)
+                    console.log(`${Platform.OS === 'android' ? '🤖' : '🍎'} [CAMERA] Camera ready with enhanced settings!`)
+                    setCameraError(null) // Clear any previous errors
                     setIsCameraReady(true)
                   }
                 }}
                 onMountError={(error) => {
-                  console.error('📷 Camera mount error:', error)
-                  const errorMessage = Platform.OS === 'android' 
-                    ? `Erreur caméra Android: ${error.message}`
-                    : 'Impossible d\'initialiser la caméra.'
-                  Alert.alert('Erreur caméra', errorMessage)
+                  console.error('📷 [CAMERA] Camera mount error:', error)
+                  setCameraError(error)
                   setIsCameraReady(false)
+                  
+                  // Enhanced error messaging
+                  let errorMessage = 'Impossible d\'initialiser la caméra.'
+                  let actionMessage = 'Réessayez'
+                  
+                  if (Platform.OS === 'android') {
+                    if (error.message?.includes('permission')) {
+                      errorMessage = 'Permissions caméra manquantes. Vérifiez les paramètres de l\'app.'
+                      actionMessage = 'Paramètres'
+                    } else if (error.message?.includes('busy') || error.message?.includes('occupied')) {
+                      errorMessage = 'Caméra utilisée par une autre application. Fermez les autres apps utilisant la caméra.'
+                      actionMessage = 'Réessayer'
+                    } else {
+                      errorMessage = `Erreur caméra Android: ${error.message || 'Erreur inconnue'}`
+                      actionMessage = 'Redémarrer'
+                    }
+                  }
+                  
+                  Alert.alert(
+                    'Erreur caméra', 
+                    errorMessage,
+                    [
+                      { text: 'Retour', style: 'cancel', onPress: () => router.back() },
+                      { text: actionMessage, onPress: () => {
+                        // Attempt to reinitialize camera
+                        setTimeout(() => {
+                          initializeCamera()
+                        }, 1000)
+                      }}
+                    ]
+                  )
                 }}
               />
             </Animated.View>
@@ -1673,9 +1765,39 @@ const CameraScreen = () => {
       
       
       {/* Camera Loading Overlay */}
-      {!isCameraReady && (
+      {!isCameraReady && !cameraError && (
         <View style={styles.loadingContainer}>
           <Text style={styles.loadingText}>Préparation de la caméra...</Text>
+        </View>
+      )}
+      
+      {/* Camera Error Overlay */}
+      {cameraError && (
+        <View style={styles.errorContainer}>
+          <Ionicons name="camera-outline" size={64} color={Colors.gray400} />
+          <Text style={styles.errorTitle}>Erreur caméra</Text>
+          <Text style={styles.errorText}>
+            {Platform.OS === 'android' 
+              ? 'La caméra ne peut pas être initialisée. Cela peut arriver si une autre app utilise la caméra ou si les permissions sont insuffisantes.'
+              : 'Impossible d\'accéder à la caméra. Vérifiez les permissions dans les réglages.'
+            }
+          </Text>
+          <TouchableOpacity
+            style={styles.retryButton}
+            onPress={() => {
+              setCameraError(null)
+              initializeCamera()
+            }}
+          >
+            <Ionicons name="refresh" size={20} color={Colors.white} />
+            <Text style={styles.retryButtonText}>Réessayer</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.backButtonError}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.backButtonErrorText}>Retour</Text>
+          </TouchableOpacity>
         </View>
       )}
 
@@ -2549,6 +2671,60 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
   },
   backButtonAltText: {
+    color: Colors.gray400,
+    fontSize: Typography.base,
+    textAlign: 'center',
+  },
+  
+  // Error Container Styles
+  errorContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.black,
+    padding: Spacing.xl,
+    zIndex: 1000,
+  },
+  errorTitle: {
+    fontSize: Typography.xl,
+    fontWeight: Typography.medium,
+    color: Colors.white,
+    textAlign: 'center',
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  errorText: {
+    fontSize: Typography.base,
+    color: Colors.gray300,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: Spacing.xl,
+    paddingHorizontal: Spacing.md,
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    marginBottom: Spacing.md,
+  },
+  retryButtonText: {
+    color: Colors.white,
+    fontSize: Typography.base,
+    fontWeight: Typography.medium,
+    marginLeft: Spacing.sm,
+  },
+  backButtonError: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+  },
+  backButtonErrorText: {
     color: Colors.gray400,
     fontSize: Typography.base,
     textAlign: 'center',
