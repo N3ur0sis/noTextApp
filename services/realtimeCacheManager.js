@@ -1031,7 +1031,7 @@ class OptimizedRealtimeCacheManager extends EnhancedEventEmitter {
       
     } catch (error) {
       console.error('❌ Error handling conversation update:', error)
-    }x
+    }
   }
 
   // Handle media for new messages - fetch signed URLs and preload (OPTIMIZED)
