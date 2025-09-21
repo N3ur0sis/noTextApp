@@ -10,7 +10,7 @@ module.exports = function (api) {
         ['transform-remove-console', { exclude: ['error', 'warn'] }]
       ] : []),
       'babel-plugin-react-compiler',
-      'react-native-reanimated/plugin', // 👈 Must be last
+      'react-native-worklets/plugin', // 👈 Must be last
     ],
   };
 };
