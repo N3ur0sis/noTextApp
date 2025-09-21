@@ -39,8 +39,15 @@ class NotificationIntegrationService {
     try {
       console.log(`🚀 [NOTIF_INTEGRATION] Initializing notification integration... (attempt ${retryCount + 1}/${maxRetries + 1})`)
 
-      // Initialize push notification service with robust retry
-      const pushToken = await pushNotificationService.init(currentUser.id)
+      // Initialize push notification service with robust retry (if not already initialized)
+      let pushToken
+      if (!pushNotificationService.isInitialized) {
+        console.log('📱 [NOTIF_INTEGRATION] Push service not initialized, initializing...')
+        pushToken = await pushNotificationService.init(currentUser.id)
+      } else {
+        console.log('📱 [NOTIF_INTEGRATION] Push service already initialized, skipping...')
+        pushToken = pushNotificationService.getPushToken()
+      }
 
       // Set up real-time message listeners
       this.setupRealtimeListeners()
@@ -789,6 +796,12 @@ class NotificationIntegrationService {
   // Get notification settings
   getNotificationSettings() {
     return pushNotificationService.settings || {}
+  }
+
+  // Set current user without full reinitialization
+  setCurrentUser(user) {
+    console.log('👤 [NOTIF_INTEGRATION] Setting current user:', user.pseudo)
+    this.currentUser = user
   }
 
   // Test notification (for debugging)
