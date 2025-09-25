@@ -917,15 +917,21 @@ export class RobustDeviceAuthService {
   }
 
   /**
-   * Get session safely without throwing errors
+   * Get session safely with expiration handling
    */
   static async _getSessionSafely() {
     try {
       const now = Date.now()
       
-      // Return cached session if fresh
+      // Check cached session freshness and expiration
       if (this._cachedSession && (now - this._sessionCacheTime) < this._sessionCacheTTL) {
-        return this._cachedSession
+        // Verify cached session is not expired
+        if (this._cachedSession.expires_at && this._cachedSession.expires_at * 1000 < now) {
+          console.log('⏰ [ROBUST_AUTH] Cached session expired, clearing cache')
+          this.clearSessionCache()
+        } else {
+          return this._cachedSession
+        }
       }
       
       const { data: { session }, error } = await supabase.auth.getSession()
@@ -933,6 +939,28 @@ export class RobustDeviceAuthService {
       if (error) {
         console.warn('⚠️ [ROBUST_AUTH] Error getting session:', error)
         return null
+      }
+      
+      // Check if fetched session is expired and try to refresh
+      if (session && session.expires_at && session.expires_at * 1000 < now) {
+        console.log('⏰ [ROBUST_AUTH] Fetched session is expired, attempting refresh')
+        
+        if (session.refresh_token) {
+          try {
+            const { data: refreshData, error: refreshError } = await supabase.auth.refreshSession({
+              refresh_token: session.refresh_token
+            })
+            
+            if (!refreshError && refreshData.session) {
+              console.log('✅ [ROBUST_AUTH] Session auto-refreshed')
+              session = refreshData.session
+            } else {
+              console.warn('⚠️ [ROBUST_AUTH] Session refresh failed:', refreshError)
+            }
+          } catch (refreshError) {
+            console.warn('⚠️ [ROBUST_AUTH] Session refresh exception:', refreshError)
+          }
+        }
       }
       
       // Cache the session result
@@ -943,6 +971,16 @@ export class RobustDeviceAuthService {
       
     } catch (error) {
       console.error('❌ [ROBUST_AUTH] Exception getting session:', error)
+      
+      // Fallback to cached session if available and not expired
+      if (this._cachedSession) {
+        const now = Date.now()
+        if (!this._cachedSession.expires_at || this._cachedSession.expires_at * 1000 > now) {
+          console.log('🛡️ [ROBUST_AUTH] Using unexpired cached session as fallback')
+          return this._cachedSession
+        }
+      }
+      
       return null
     }
   }

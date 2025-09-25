@@ -2,6 +2,8 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { DeviceAuthService } from '../services/deviceAuthService'
 import { RobustDeviceAuthService } from '../services/robustDeviceAuthService'
 import { NetworkService } from '../services/networkService'
+import { AuthHealthMonitor } from '../services/authHealthMonitor'
+import { ConnectionRecoveryService } from '../services/connectionRecoveryService'
 
 // AuthContext to provide user state globally with enhanced robust device-bound JWT authentication
 const AuthContext = createContext(null)
@@ -48,6 +50,8 @@ export function AuthProvider({ children }) {
     // Cleanup on unmount
     return () => {
       RobustDeviceAuthService.cleanup()
+      AuthHealthMonitor.stopMonitoring()
+      ConnectionRecoveryService.stop()
     }
   }, [])
 
@@ -160,6 +164,15 @@ export function AuthProvider({ children }) {
         } else {
           console.log('🔴 [AUTH] Skipping service initialization - offline mode with stale data')
         }
+      }
+
+      // Start auth health monitoring and connection recovery if we have an authenticated user
+      if (currentUser?.id) {
+        console.log('❤️ [AUTH] Starting authentication health monitoring')
+        AuthHealthMonitor.startMonitoring(120000) // Check every 2 minutes
+        
+        console.log('🔌 [AUTH] Starting connection recovery service')
+        ConnectionRecoveryService.start()
       }
     } catch (err) {
       console.error('❌ [AUTH] Enhanced auth initialization error:', err)
