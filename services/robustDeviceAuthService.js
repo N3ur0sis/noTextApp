@@ -786,9 +786,20 @@ export class RobustDeviceAuthService {
       if (!isConnected) {
         console.log('🔴 [ROBUST_AUTH] Cannot refresh token - offline mode')
         
-        // Return stored user data in offline mode
+        // Enhanced offline handling - always allow offline auth if we have user data
         const storedUser = await getUserData()
-        if (storedUser && this._authState?.state === this.AUTH_STATES.OFFLINE_AUTHENTICATED) {
+        if (storedUser) {
+          // Update auth state to reflect offline status but keep user logged in
+          const offlineAuthState = {
+            state: this.AUTH_STATES.OFFLINE_AUTHENTICATED,
+            user: storedUser,
+            lastOnlineSync: this._authState?.lastOnlineSync || 0,
+            isOffline: true,
+            isAuthenticated: true
+          }
+          
+          await this._updateAuthState(offlineAuthState)
+          console.log('✅ [ROBUST_AUTH] Maintaining offline authentication for user:', storedUser.pseudo)
           return storedUser
         }
         
@@ -980,6 +991,204 @@ export class RobustDeviceAuthService {
    */
   static getCurrentUser() {
     return this._authState?.user || null
+  }
+
+  /**
+   * Attempt auto-recovery on app launch
+   * This method tries multiple recovery strategies to restore user session
+   */
+  static async attemptAutoRecovery() {
+    console.log('🔄 [ROBUST_AUTH] Starting auto-recovery process...')
+    
+    try {
+      // Strategy 1: Check for stored user with valid session
+      console.log('📋 [ROBUST_AUTH] Strategy 1: Checking stored user data...')
+      const storedUser = await getUserData()
+      if (storedUser) {
+        console.log('✅ [ROBUST_AUTH] Found stored user:', storedUser.pseudo)
+        
+        // Try to restore session
+        const recoveredUser = await this._attemptSessionRecovery(storedUser)
+        if (recoveredUser) {
+          console.log('✅ [ROBUST_AUTH] Session recovery successful')
+          return {
+            user: recoveredUser,
+            authState: {
+              state: this.AUTH_STATES.ONLINE_AUTHENTICATED,
+              user: recoveredUser,
+              lastOnlineSync: Date.now(),
+              isAuthenticated: true,
+              isRecovered: true
+            }
+          }
+        }
+        
+        // Strategy 2: Check for device ID migration needs
+        console.log('📋 [ROBUST_AUTH] Strategy 2: Checking device ID migration...')
+        const migratedUser = await this._handleDeviceIdMigration(storedUser)
+        if (migratedUser) {
+          console.log('✅ [ROBUST_AUTH] Device ID migration successful')
+          return {
+            user: migratedUser,
+            authState: {
+              state: this.AUTH_STATES.ONLINE_AUTHENTICATED,
+              user: migratedUser,
+              lastOnlineSync: Date.now(),
+              isAuthenticated: true,
+              isRecovered: true
+            }
+          }
+        }
+        
+        // Strategy 3: Use offline authentication with stored data
+        console.log('📋 [ROBUST_AUTH] Strategy 3: Using offline authentication...')
+        const isConnected = await NetworkService.isConnected()
+        if (!isConnected || Date.now() - (this._authState?.lastOnlineSync || 0) < 7 * 24 * 60 * 60 * 1000) {
+          // Allow offline auth if we're offline or last sync was less than 7 days ago
+          const offlineAuthState = {
+            state: this.AUTH_STATES.OFFLINE_AUTHENTICATED,
+            user: storedUser,
+            lastOnlineSync: this._authState?.lastOnlineSync || 0,
+            isOffline: !isConnected,
+            isAuthenticated: true,
+            isRecovered: true
+          }
+          
+          await this._updateAuthState(offlineAuthState)
+          console.log('✅ [ROBUST_AUTH] Offline authentication successful')
+          return {
+            user: storedUser,
+            authState: offlineAuthState
+          }
+        }
+      }
+      
+      // Strategy 4: Check previous user for pseudo-based recovery
+      console.log('📋 [ROBUST_AUTH] Strategy 4: Checking previous user data...')
+      const previousUser = await getPreviousUser()
+      if (previousUser) {
+        console.log('✅ [ROBUST_AUTH] Found previous user:', previousUser.pseudo)
+        
+        // Try to find this user in database and recover
+        try {
+          const { data: existingUsers } = await supabase
+            .from('users')
+            .select('*')
+            .eq('id', previousUser.id)
+            .single()
+          
+          if (existingUsers) {
+            console.log('✅ [ROBUST_AUTH] Previous user found in database, attempting recovery...')
+            const recoveredUser = await this._attemptSessionRecovery(existingUsers)
+            if (recoveredUser) {
+              console.log('✅ [ROBUST_AUTH] Previous user recovery successful')
+              await saveUserData(recoveredUser)
+              return {
+                user: recoveredUser,
+                authState: {
+                  state: this.AUTH_STATES.ONLINE_AUTHENTICATED,
+                  user: recoveredUser,
+                  lastOnlineSync: Date.now(),
+                  isAuthenticated: true,
+                  isRecovered: true
+                }
+              }
+            }
+          }
+        } catch (dbError) {
+          console.warn('⚠️ [ROBUST_AUTH] Database lookup for previous user failed:', dbError)
+        }
+      }
+      
+      console.log('❌ [ROBUST_AUTH] All auto-recovery strategies failed')
+      return null
+      
+    } catch (error) {
+      console.error('❌ [ROBUST_AUTH] Auto-recovery failed with error:', error)
+      return null
+    }
+  }
+
+  /**
+   * Attempt pseudo-based recovery when user tries to register with existing pseudo
+   */
+  static async attemptPseudoBasedRecovery(pseudo, age, sexe) {
+    try {
+      console.log('🔄 [ROBUST_AUTH] Attempting pseudo-based recovery for:', pseudo)
+      
+      // Check if we have previous user data with this pseudo
+      const previousUser = await getPreviousUser()
+      if (previousUser && previousUser.pseudo.toLowerCase() === pseudo.toLowerCase()) {
+        console.log('✅ [ROBUST_AUTH] Found previous user data for pseudo collision recovery')
+        
+        // Try to recover using previous user data
+        const recoveryResult = await this._handlePseudoCollisionRecovery(previousUser, pseudo, age, sexe)
+        if (recoveryResult) {
+          return recoveryResult
+        }
+      }
+      
+      // Check database for user with this pseudo
+      const { data: existingUsers } = await supabase
+        .from('users')
+        .select('*')
+        .eq('pseudo', pseudo)
+        .limit(1)
+      
+      if (existingUsers && existingUsers.length > 0) {
+        const existingUser = existingUsers[0]
+        
+        // Check if this user was previously connected to this device
+        const deviceMigration = await getDeviceMigration()
+        if (deviceMigration && deviceMigration.userId === existingUser.id) {
+          console.log('✅ [ROBUST_AUTH] Found device migration data, attempting recovery...')
+          
+          const recoveryResult = await this._handlePseudoCollisionRecovery(existingUser, pseudo, age, sexe)
+          if (recoveryResult) {
+            return recoveryResult
+          }
+        }
+        
+        // Try device ID migration approach
+        const currentDeviceId = await getOrCreateDeviceId()
+        
+        // Update user's device ID and attempt recovery
+        try {
+          const { error: updateError } = await supabase
+            .from('users')
+            .update({ device_id: currentDeviceId })
+            .eq('id', existingUser.id)
+          
+          if (!updateError) {
+            console.log('✅ [ROBUST_AUTH] Updated device ID for pseudo recovery')
+            
+            const updatedUser = { ...existingUser, device_id: currentDeviceId }
+            
+            // Save user data and update auth state
+            await saveUserData(updatedUser)
+            await savePreviousUser(updatedUser)
+            
+            const authState = {
+              state: this.AUTH_STATES.ONLINE_AUTHENTICATED,
+              user: updatedUser,
+              lastOnlineSync: Date.now()
+            }
+            await this._updateAuthState(authState)
+            
+            return { user: updatedUser, isRecovery: true }
+          }
+        } catch (updateError) {
+          console.warn('⚠️ [ROBUST_AUTH] Could not update device ID for recovery:', updateError)
+        }
+      }
+      
+      console.log('❌ [ROBUST_AUTH] No recovery possible for pseudo:', pseudo)
+      return null
+      
+    } catch (error) {
+      console.error('❌ [ROBUST_AUTH] Pseudo-based recovery failed:', error)
+      return null
+    }
   }
 
   /**

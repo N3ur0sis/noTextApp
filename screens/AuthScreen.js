@@ -52,6 +52,53 @@ const AuthScreen = ({ onAuthSuccess = null }) => {
     Keyboard.dismiss()
   }
 
+  const handleAccountRecovery = async (userPseudo, userAge, userSexe) => {
+    setLoading(true)
+    try {
+      console.log('🔄 [AUTH_SCREEN] Attempting account recovery for pseudo:', userPseudo)
+      
+      const recoveryResult = await RobustDeviceAuthService.attemptPseudoBasedRecovery(userPseudo, userAge, userSexe)
+      
+      if (recoveryResult && recoveryResult.user) {
+        console.log('✅ [AUTH_SCREEN] Account recovery successful')
+        
+        await login(recoveryResult.user, false)
+        
+        Alert.alert(
+          'Compte récupéré !',
+          `Bienvenue à nouveau ${recoveryResult.user.pseudo} ! Votre compte a été récupéré avec succès.`,
+          [
+            {
+              text: 'Continuer',
+              onPress: () => {
+                if (onAuthSuccess) {
+                  onAuthSuccess(recoveryResult.user)
+                } else {
+                  router.push('/home')
+                }
+              }
+            }
+          ]
+        )
+      } else {
+        Alert.alert(
+          'Récupération impossible',
+          'Impossible de récupérer le compte. Ce pseudo appartient peut-être à un autre utilisateur.',
+          [{ text: 'OK' }]
+        )
+      }
+    } catch (error) {
+      console.error('❌ [AUTH_SCREEN] Account recovery error:', error)
+      Alert.alert(
+        'Erreur de récupération',
+        'Une erreur est survenue lors de la récupération du compte. Veuillez réessayer.',
+        [{ text: 'OK' }]
+      )
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleAuth = async () => {
     if (!pseudo.trim() || !age) {
       Alert.alert('Erreur', 'Veuillez remplir le pseudo et l\'âge')
@@ -107,18 +154,41 @@ const AuthScreen = ({ onAuthSuccess = null }) => {
     } catch (error) {
       console.error('❌ [AUTH_SCREEN] Registration error:', error)
       
-      // Show more user-friendly error messages
+      // Enhanced error handling with recovery options
       let errorMessage = error.message || 'Impossible de créer le compte'
+      let showRecoveryOption = false
       
       if (error.message?.includes('connexion internet')) {
         errorMessage = 'Pas de connexion internet. Veuillez vérifier votre connexion et réessayer.'
       } else if (error.message?.includes('pseudo')) {
-        errorMessage = 'Ce pseudo est déjà utilisé. Choisissez un autre pseudo.'
+        // Check if this might be a pseudo collision that could be recovered
+        const isCollisionError = error.message.includes('déjà utilisé') || error.message.includes('déjà pris')
+        if (isCollisionError) {
+          showRecoveryOption = true
+          errorMessage = `Le pseudo "${pseudo}" est déjà utilisé. Si c'est votre compte, nous allons tenter de vous reconnecter.`
+        } else {
+          errorMessage = 'Ce pseudo est déjà utilisé. Choisissez un autre pseudo.'
+        }
       } else if (error.message?.includes('timeout')) {
         errorMessage = 'La connexion a expiré. Veuillez vérifier votre connexion et réessayer.'
       }
       
-      Alert.alert('Erreur', errorMessage)
+      if (showRecoveryOption) {
+        Alert.alert(
+          'Compte existant détecté',
+          errorMessage,
+          [
+            { text: 'Changer de pseudo', style: 'cancel' },
+            {
+              text: 'Tenter la reconnexion',
+              style: 'default',
+              onPress: () => handleAccountRecovery(pseudo.trim(), age, sexe || 'Autre')
+            }
+          ]
+        )
+      } else {
+        Alert.alert('Erreur', errorMessage)
+      }
     } finally {
       setLoading(false)
     }

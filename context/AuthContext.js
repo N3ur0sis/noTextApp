@@ -69,7 +69,7 @@ export function AuthProvider({ children }) {
       setLoading(true)
       setError(null)
       
-      console.log('🛡️ [AUTH] Initializing robust authentication system...')
+      console.log('🛡️ [AUTH] Initializing enhanced robust authentication system...')
       
       // GARANTIE: Installation propre - nettoyer TOUT cache de notifications existant
       try {
@@ -80,9 +80,30 @@ export function AuthProvider({ children }) {
         console.warn('⚠️ [AUTH] Could not ensure clean installation:', cleanError)
       }
       
-      // Use the robust authentication service
-      const currentUser = await RobustDeviceAuthService.initialize()
-      const currentAuthState = RobustDeviceAuthService.getCurrentAuthState()
+      // Enhanced initialization with multiple recovery attempts
+      let currentUser = null
+      let currentAuthState = null
+      
+      // First attempt: Use the robust authentication service
+      try {
+        currentUser = await RobustDeviceAuthService.initialize()
+        currentAuthState = RobustDeviceAuthService.getCurrentAuthState()
+      } catch (initError) {
+        console.warn('⚠️ [AUTH] First initialization attempt failed:', initError)
+        
+        // Second attempt: Try auto-recovery
+        try {
+          console.log('🔄 [AUTH] Attempting auto-recovery...')
+          const recoveryResult = await RobustDeviceAuthService.attemptAutoRecovery()
+          if (recoveryResult) {
+            currentUser = recoveryResult.user
+            currentAuthState = recoveryResult.authState
+            console.log('✅ [AUTH] Auto-recovery successful')
+          }
+        } catch (recoveryError) {
+          console.warn('⚠️ [AUTH] Auto-recovery failed:', recoveryError)
+        }
+      }
       
       setUser(currentUser)
       setAuthState(currentAuthState)

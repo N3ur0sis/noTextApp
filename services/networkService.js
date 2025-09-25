@@ -31,7 +31,7 @@ export class NetworkService {
   }
 
   /**
-   * Check if device is currently connected to the internet
+   * Check if device is currently connected to the internet with enhanced detection
    */
   static async isConnected() {
     if (!this._initialized) {
@@ -40,7 +40,31 @@ export class NetworkService {
 
     try {
       const networkState = await Network.getNetworkStateAsync();
-      const connected = networkState.isConnected && networkState.isInternetReachable;
+      let connected = networkState.isConnected && networkState.isInternetReachable;
+      
+      // Enhanced connection verification - sometimes isInternetReachable is null
+      if (networkState.isConnected && networkState.isInternetReachable === null) {
+        console.log('🌐 [NETWORK] Internet reachability unknown, performing additional check...');
+        
+        // Try a simple network request to verify actual internet connectivity
+        try {
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+          
+          const response = await fetch('https://www.google.com/generate_204', {
+            method: 'HEAD',
+            signal: controller.signal,
+            cache: 'no-cache'
+          });
+          
+          clearTimeout(timeoutId);
+          connected = response.ok;
+          console.log('🌐 [NETWORK] Network verification result:', connected);
+        } catch (fetchError) {
+          console.log('🌐 [NETWORK] Network verification failed, assuming offline');
+          connected = false;
+        }
+      }
       
       // Update internal state
       if (this._isConnected !== connected) {
@@ -52,7 +76,7 @@ export class NetworkService {
       return connected;
     } catch (error) {
       console.error('❌ [NETWORK] Error checking connectivity:', error);
-      // Return last known state if check fails
+      // Return last known state if check fails, but assume offline if never initialized
       return this._isConnected;
     }
   }
@@ -92,6 +116,66 @@ export class NetworkService {
     return () => {
       this._connectionListeners.delete(callback);
     };
+  }
+
+  /**
+   * Execute a function with network retry logic
+   */
+  static async withRetry(asyncFunction, maxRetries = 3, delay = 1000) {
+    let lastError = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Check if we're connected before attempting
+        const isConnected = await this.isConnected();
+        if (!isConnected) {
+          throw new Error('No internet connection available');
+        }
+        
+        console.log(`🌐 [NETWORK] Attempt ${attempt}/${maxRetries}`);
+        const result = await asyncFunction();
+        console.log(`✅ [NETWORK] Success on attempt ${attempt}`);
+        return result;
+      } catch (error) {
+        lastError = error;
+        console.warn(`⚠️ [NETWORK] Attempt ${attempt}/${maxRetries} failed:`, error.message);
+        
+        // Don't retry for certain types of errors
+        if (error.message?.includes('pseudo') || 
+            error.message?.includes('unauthorized') ||
+            error.message?.includes('forbidden')) {
+          console.log('🛑 [NETWORK] Non-retryable error, stopping retries');
+          throw error;
+        }
+        
+        // Wait before next attempt (except on last attempt)
+        if (attempt < maxRetries) {
+          const waitTime = delay * Math.pow(2, attempt - 1); // Exponential backoff
+          console.log(`⏳ [NETWORK] Waiting ${waitTime}ms before next attempt...`);
+          await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+      }
+    }
+    
+    console.error(`❌ [NETWORK] All ${maxRetries} attempts failed`);
+    throw lastError;
+  }
+
+  /**
+   * Check if error is network-related and retryable
+   */
+  static isRetryableError(error) {
+    const retryableMessages = [
+      'network request failed',
+      'timeout',
+      'connection refused',
+      'no internet',
+      'offline',
+      'fetch failed'
+    ];
+    
+    const errorMessage = error.message?.toLowerCase() || '';
+    return retryableMessages.some(msg => errorMessage.includes(msg));
   }
 
   /**
