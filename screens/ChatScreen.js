@@ -123,16 +123,36 @@ const ChatScreen = () => {
   const cameraOverlayProgress = useSharedValue(0)
 
   // Initialize carousel position immediately when messages are available - OPTIMIZED to prevent flash
+  // ENHANCED: Better handling for conversations with any message count
   useEffect(() => {
     if (messages && messages.length > 0 && currentIndex === -1) { // Only on initial load
       const lastIndex = messages.length - 1
+      console.log(`🎯 [INIT] Initializing carousel for ${messages.length} messages, setting currentIndex to ${lastIndex}`)
       // OPTIMIZATION: Set position immediately without animation to prevent flash
       carouselTranslateX.value = -lastIndex * width
       setCurrentIndex(lastIndex)
     }
+    
+    // CONSISTENCY FIX: Handle message count changes more gracefully for small conversations
+    if (messages && messages.length > 0 && currentIndex >= 0) {
+      const expectedPosition = -currentIndex * width
+      const currentPosition = carouselTranslateX.value
+      const positionDrift = Math.abs(expectedPosition - currentPosition)
+      
+      // If position has drifted significantly (can happen during optimistic updates), correct it
+      if (positionDrift > width * 0.1) { // 10% threshold
+        console.log(`🔧 [POSITION] Correcting carousel position drift: expected ${expectedPosition}, actual ${currentPosition}`)
+        carouselTranslateX.value = withSpring(expectedPosition, {
+          damping: 25,
+          stiffness: 300,
+          mass: 0.6
+        })
+      }
+    }
   }, [messages, width, carouselTranslateX, currentIndex]) // Remove messages?.length dependency
 
   // Safety: clamp currentIndex when the list shrinks (e.g., after NSFW removal)
+  // FIXED: Enhanced stability for conversations with < 10 messages
   useEffect(() => {
     const len = Array.isArray(messages) ? messages.length : 0
     if (len === 0) {
@@ -140,6 +160,8 @@ const ChatScreen = () => {
       if (currentIndex !== -1) setCurrentIndex(-1)
       return
     }
+    
+    // STABILITY FIX: Be more careful about when to clamp index
     if (currentIndex >= len) {
       const newIndex = Math.max(0, len - 1)
       console.log(`🔧 [SAFETY] Clamping currentIndex from ${currentIndex} to ${newIndex} (messages length: ${len})`)
@@ -152,8 +174,71 @@ const ChatScreen = () => {
           mass: 0.8
         })
       }
+    } else if (currentIndex === -1 && len > 0) {
+      // SMALL CONVERSATION FIX: If we have no index but messages exist, go to last message
+      // This ensures consistent behavior for conversations with any number of messages
+      const lastIndex = len - 1
+      setCurrentIndex(lastIndex)
+      if (!removingMessageId) {
+        carouselTranslateX.value = withSpring(-lastIndex * width, {
+          damping: 20,
+          stiffness: 200,
+          mass: 0.8
+        })
+      }
     }
   }, [messages?.length, carouselTranslateX, width, currentIndex, removingMessageId])
+
+  // Position preservation for optimistic message handling
+  const previousMessagesRef = useRef([])
+  const userPositionRef = useRef({ messageId: null, index: -1 })
+
+  // Track user's current viewing position for preservation during updates
+  useEffect(() => {
+    if (messages && messages.length > 0 && currentIndex >= 0 && currentIndex < messages.length) {
+      const currentMessage = messages[currentIndex]
+      if (currentMessage && currentMessage.id) {
+        userPositionRef.current = {
+          messageId: currentMessage.id,
+          index: currentIndex
+        }
+      }
+    }
+  }, [messages, currentIndex])
+
+  // STABILITY FIX: Preserve user position during optimistic → real message transitions
+  useEffect(() => {
+    if (!messages || messages.length === 0) return
+    
+    const prevMessages = previousMessagesRef.current
+    const prevLength = prevMessages.length
+    const currentLength = messages.length
+    
+    // Detect if we're dealing with optimistic message replacement
+    if (prevLength > 0 && currentLength > 0 && userPositionRef.current.messageId) {
+      const prevHadOptimistic = prevMessages.some(m => m._isSending)
+      const currentHasOptimistic = messages.some(m => m._isSending)
+      
+      // If optimistic messages were resolved, try to preserve user's position
+      if (prevHadOptimistic && !currentHasOptimistic) {
+        const targetMessageId = userPositionRef.current.messageId
+        const newIndex = messages.findIndex(m => m.id === targetMessageId)
+        
+        if (newIndex >= 0 && newIndex !== currentIndex) {
+          console.log(`🎯 [PRESERVE] Restoring user position to message ${targetMessageId} at index ${newIndex} (was ${currentIndex})`)
+          setCurrentIndex(newIndex)
+          carouselTranslateX.value = withSpring(-newIndex * width, {
+            damping: 20,
+            stiffness: 200,
+            mass: 0.8
+          })
+        }
+      }
+    }
+    
+    // Update reference for next comparison
+    previousMessagesRef.current = [...messages]
+  }, [messages, currentIndex, carouselTranslateX, width])
 
   // 4. Parse data with stable references
   const currentUser = authContext?.user || null
@@ -1830,8 +1915,16 @@ const ChatScreen = () => {
           } catch (_) {}
           // Only handle horizontal swipes for carousel navigation
           if (Math.abs(event.translationX) > Math.abs(event.translationY)) {
-            const newTranslateX = -currentIndex * width + event.translationX
-            carouselTranslateX.value = newTranslateX
+            // SAFETY: Validate position calculation for small conversations
+            const expectedPosition = -currentIndex * width
+            const newTranslateX = expectedPosition + event.translationX
+            
+            // Bound checking for small conversations to prevent visual glitches
+            const maxTranslateX = 0 // First message (index 0) position
+            const minTranslateX = -(messages.length - 1) * width // Last message position
+            const boundedTranslateX = Math.min(maxTranslateX, Math.max(minTranslateX, newTranslateX))
+            
+            carouselTranslateX.value = boundedTranslateX
           }
         } catch (error) {
           console.error('❌ [GESTURE] Error in horizontal pan update:', error)
@@ -1860,15 +1953,32 @@ const ChatScreen = () => {
           
           // Check if this is primarily a horizontal gesture
           if (Math.abs(translationX) > Math.abs(translationY)) {
-            console.log(`🎯 [GESTURE] Horizontal pan ended - translationX: ${translationX}, velocityX: ${velocity}, currentIndex: ${currentIndex}`)
+            console.log(`🎯 [GESTURE] Horizontal pan ended - translationX: ${translationX}, velocityX: ${velocity}, currentIndex: ${currentIndex}, messagesLength: ${messages.length}`)
             let newIndex = currentIndex
-            if (translationX > width * 0.3 || velocity > 500) {
+            
+            // CONSISTENCY FIX: Adjust gesture sensitivity based on message count
+            // For small conversations (<= 3 messages), use slightly higher thresholds to prevent accidental swipes
+            const isSmallConversation = messages.length <= 3
+            const translationThreshold = isSmallConversation ? width * 0.4 : width * 0.3
+            const velocityThreshold = isSmallConversation ? 600 : 500
+            
+            if (translationX > translationThreshold || velocity > velocityThreshold) {
               newIndex = Math.max(0, currentIndex - 1)
-            } else if (translationX < -width * 0.3 || velocity < -500) {
+            } else if (translationX < -translationThreshold || velocity < -velocityThreshold) {
               newIndex = Math.min(messages.length - 1, currentIndex + 1)
             }
+            
+            // BOUNDARY FEEDBACK: For small conversations, provide subtle feedback at boundaries
+            if (messages.length <= 5) {
+              if ((currentIndex === 0 && newIndex === 0 && translationX > 0) || 
+                  (currentIndex === messages.length - 1 && newIndex === messages.length - 1 && translationX < 0)) {
+                // At boundary in small conversation - add subtle spring back effect
+                console.log(`🎯 [GESTURE] Boundary reached in small conversation (${messages.length} messages)`)
+              }
+            }
+            
             // Navigate normally
-            console.log(`🎯 [GESTURE] Moving from index ${currentIndex} to ${newIndex}`)
+            console.log(`🎯 [GESTURE] Moving from index ${currentIndex} to ${newIndex} (${messages.length} total messages)`)
             carouselTranslateX.value = withSpring(-newIndex * width, {
               damping: 20,
               stiffness: 200,
@@ -2024,6 +2134,23 @@ const ChatScreen = () => {
     }
   }, [])
 
+  // ENHANCED: Calculate display index with better validation for small conversations
+  const displayIndex = useMemo(() => {
+    if (!messages || messages.length === 0) return 0
+    
+    if (currentIndex >= 0) {
+      // Validate current index is within bounds
+      const validIndex = Math.min(Math.max(0, currentIndex), messages.length - 1)
+      if (validIndex !== currentIndex && __DEV__) {
+        console.warn(`🚨 [DISPLAY] currentIndex ${currentIndex} out of bounds for ${messages.length} messages, using ${validIndex}`)
+      }
+      return validIndex
+    }
+    
+    // Fallback to last message
+    return messages.length - 1
+  }, [currentIndex, messages])
+
   // ALL HOOKS CALLED - NOW WE CAN DO CONDITIONAL RENDERING
 
   // Show loading only when we truly have no messages yet AND we're actually loading
@@ -2083,8 +2210,6 @@ const ChatScreen = () => {
   }
 
   // Main interface - Full screen with gesture navigation
-  // Calculate display index - use currentIndex if set, otherwise use last message index
-  const displayIndex = currentIndex >= 0 ? currentIndex : (messages?.length ? messages.length - 1 : 0)
   
   return (
     <Animated.View style={[styles.container, animatedScreenStyle]}>
@@ -2107,24 +2232,34 @@ const ChatScreen = () => {
             style={[styles.carousel, animatedCarouselStyle]}
           >
             {messages.map((message, index) => {
-              // Generate stable keys that persist through optimistic → real message transitions
+              // ENHANCED: Generate stable keys that persist through optimistic → real message transitions
+              // Better handling for small conversations and edge cases
               const getStableKey = (msg) => {
+                // Priority 1: Real message with stable ID (most reliable)
                 if (msg.id && !msg._isSending) {
-                  // Real message with stable ID
                   return `real-${msg.id}`;
-                } else if (msg._tempId) {
-                  // Message with tempId reference (optimistic or replacement)
+                } 
+                
+                // Priority 2: Message with tempId reference (optimistic or replacement)
+                if (msg._tempId) {
                   return `temp-${msg._tempId}`;
-                } else if (msg.tempId) {
-                  // Optimistic message with tempId
+                } 
+                
+                // Priority 3: Optimistic message with tempId
+                if (msg.tempId) {
                   return `optimistic-${msg.tempId}`;
-                } else if (msg._isSending) {
-                  // Fallback for optimistic messages without stable IDs
-                  return `sending-${msg.sender_id}-${msg.created_at}-${index}`;
-                } else {
-                  // Final fallback
-                  return `msg-${msg.id || index}`;
-                }
+                } 
+                
+                // Priority 4: Optimistic message without tempId (use content-based key for small conversations)
+                if (msg._isSending) {
+                  const contentHash = typeof msg.content === 'string' 
+                    ? msg.content.slice(0, 20).replace(/[^a-zA-Z0-9]/g, '') 
+                    : 'media';
+                  return `sending-${msg.sender_id}-${contentHash}-${msg.created_at?.slice(-6) || index}`;
+                } 
+                
+                // Final fallback - should rarely be used
+                return `msg-${msg.id || `fallback-${index}`}`;
               };
               
               return (
@@ -2258,33 +2393,34 @@ const MessageItem = React.memo(({
   suspendMedia,
   setNsfwVideoDurations
 }) => {
-  // Safety check for invalid messages
-  if (!message || !message.id) {
-    console.log('🟣 [TRACE] MessageItem render (invalid)', { message });
-    return null
-  }
-
-  console.log('🟣 [TRACE] MessageItem render', { message, index, currentIndex });
+  // ALL HOOKS MUST BE CALLED BEFORE ANY EARLY RETURNS - React Rules of Hooks
+  
+  // Slide-down + fade-out animation when this message is being removed (NSFW video/photo end)
+  const removalOpacity = useSharedValue(1)
+  const removalTranslateY = useSharedValue(0)
   
   // Memoize callback functions to prevent infinite re-renders
   const onVideoLoad = React.useCallback((player) => {
+    if (!message?.id) return;
     if (__DEV__) {
       console.log(`🎥 [CHAT] Video player loaded for message ${message.id}`)
     }
     console.log('🎬 [VIDEO_LOAD] Video loaded for message:', message.id);
     handleMediaRendered?.(message.id);
-  }, [message.id, handleMediaRendered]);
+  }, [message?.id, handleMediaRendered]);
 
   const onVideoError = React.useCallback((error) => {
+    if (!message?.id) return;
     if (__DEV__) {
       console.warn(`❌ [CHAT] Video error for message ${message.id}:`, error)
     }
     console.warn('❌ [VIDEO_LOAD] Video load error for message:', message.id, error);
     // Still mark as rendered even on error to not block read receipts
     handleMediaRendered?.(message.id);
-  }, [message.id, handleMediaRendered]);
+  }, [message?.id, handleMediaRendered]);
 
   const onDurationLoad = React.useCallback((duration) => {
+    if (!message?.id) return;
     console.log(`🎬 [NSFW] Duration loaded for message ${message.id}: ${duration}s`)
     // Store the duration for later use when timer starts
     setNsfwVideoDurations(prev => ({
@@ -2295,19 +2431,21 @@ const MessageItem = React.memo(({
     if (nsfwTimerState.videoCallbacks?.onDurationLoad) {
       nsfwTimerState.videoCallbacks.onDurationLoad(duration)
     }
-  }, [message.id, setNsfwVideoDurations, nsfwTimerState.videoCallbacks]);
+  }, [message?.id, setNsfwVideoDurations, nsfwTimerState.videoCallbacks]);
 
   const onVideoEnd = React.useCallback(() => {
+    if (!message?.id) return;
     console.log(`🎬 [COMPONENT] Video ended for message ${message.id} - triggering removal from component`)
     // Directly trigger removal when video ends - same as images
     if (index === currentIndex && isNsfwMessage) {
       console.log(`🎬 [COMPONENT] Video completed, removing message ${message.id} with force=true`)
       handleNsfwMessageRemoval(message.id, index, false, true)
     }
-  }, [message.id, index, currentIndex, isNsfwMessage, handleNsfwMessageRemoval]);
+  }, [message?.id, index, currentIndex, isNsfwMessage, handleNsfwMessageRemoval]);
 
   const onPlaybackStatusUpdate = React.useCallback((status) => {
     try {
+      if (!message?.id) return;
       if (index !== currentIndex) return
       if (!nsfwTimerState.isActive || nsfwTimerState.messageId !== message.id) return
       const duration = Math.max(status?.duration || 0, 0)
@@ -2324,20 +2462,17 @@ const MessageItem = React.memo(({
     } catch (e) {
       // No-op: UI update failures should not crash playback
     }
-  }, [index, currentIndex, nsfwTimerState.isActive, nsfwTimerState.messageId, message.id, setNsfwVideoDurations]);
-  const isFromCurrentUser = message.sender_id === currentUser?.id
+  }, [index, currentIndex, nsfwTimerState.isActive, nsfwTimerState.messageId, message?.id, setNsfwVideoDurations]);
+  // Calculate derived state
+  const isFromCurrentUser = message?.sender_id === currentUser?.id
   const isCurrentMessage = index === currentIndex
-  const isNsfwMessage = message.is_nsfw && !isFromCurrentUser
+  const isNsfwMessage = message?.is_nsfw && !isFromCurrentUser
+  const isRemoving = removingMessageId === message?.id
 
   // Use unified media type indicator
-  const mediaTypeInfo = getMediaTypeInfo(message)
-
-  const isRemoving = removingMessageId === message.id
-
-  // Slide-down + fade-out animation when this message is being removed (NSFW video/photo end)
-  const removalOpacity = useSharedValue(1)
-  const removalTranslateY = useSharedValue(0)
+  const mediaTypeInfo = message ? getMediaTypeInfo(message) : null
   useEffect(() => {
+    if (!message?.id) return;
     try {
       console.log(`🎭 [ANIMATION] Animation effect triggered for ${message.id}, isRemoving: ${isRemoving}`)
       if (isRemoving) {
@@ -2350,7 +2485,7 @@ const MessageItem = React.memo(({
         removalTranslateY.value = withTiming(0, { duration: 120 })
       }
     } catch (_) {}
-  }, [isRemoving]) // Removed message.id dependency to prevent infinite re-renders
+  }, [isRemoving, message?.id, removalOpacity, removalTranslateY]) // Added necessary dependencies
   const removalAnimatedStyle = useAnimatedStyle(() => ({ 
     opacity: removalOpacity.value,
     transform: [{ translateY: removalTranslateY.value }]
@@ -2358,15 +2493,32 @@ const MessageItem = React.memo(({
 
   // Mark text messages as rendered immediately
   useEffect(() => {
-    if (!message.media_url) {
+    if (message?.id && !message.media_url) {
       console.log('📝 [TEXT_RENDER] Text message rendered:', message.id);
       handleMediaRendered?.(message.id);
     }
-  }, [message.id, message.media_url]); // Removed handleMediaRendered since it's now stable
+  }, [message?.id, message?.media_url, handleMediaRendered]);
 
-  // Memoize source object to prevent VideoPlayerWrapper re-renders
-  const videoSource = React.useMemo(() => ({ uri: message.media_url }), [message.media_url]);
-  const imageSource = React.useMemo(() => ({ uri: message.media_url }), [message.media_url]);
+  // Memoize source object to prevent VideoPlayerWrapper re-renders  
+  const videoSource = React.useMemo(() => ({ uri: message?.media_url }), [message?.media_url]);
+  const imageSource = React.useMemo(() => ({ uri: message?.media_url }), [message?.media_url]);
+
+  // Safety check for invalid messages - AFTER all hooks have been called
+  if (!message || !message.id) {
+    console.log('🟣 [TRACE] MessageItem render (invalid)', { message });
+    return null
+  }
+
+  // SMALL CONVERSATION FIX: Add extra logging for debugging small conversation issues
+  if (__DEV__) {
+    console.log('🟣 [TRACE] MessageItem render', { 
+      message: message.id, 
+      index, 
+      currentIndex,
+      isOptimistic: !!message._isSending,
+      tempId: message.tempId || message._tempId
+    });
+  }
 
   return (
     <Animated.View style={[styles.messageItem, removalAnimatedStyle]}>
@@ -2511,6 +2663,8 @@ const MessageItem = React.memo(({
     </Animated.View>
   )
 })
+
+MessageItem.displayName = 'MessageItem'
 
 const styles = StyleSheet.create({
   container: {

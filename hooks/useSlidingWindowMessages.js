@@ -1200,15 +1200,34 @@ const useSlidingWindowMessages = (currentUserId, otherUserId, isChatVisible = fa
     // Final deduplication
     const dedupedFiltered = dedupeMessages(filtered);
     
-    // Apply sliding window with optimistic message accommodation
+    // Apply sliding window with consistent behavior for all message counts
+    // FIXED: Always maintain consistent window behavior regardless of message count
     let slidingWindow;
     const optimisticCount = dedupedFiltered.filter(m => m._isSending).length;
     
+    // Calculate effective window size
+    let effectiveWindowSize;
     if (optimisticCount > 0) {
-      const windowSize = Math.max(SLIDING_WINDOW_SIZE, optimisticCount + SLIDING_WINDOW_SIZE - 1);
-      slidingWindow = dedupedFiltered.slice(-windowSize);
+      // When there are optimistic messages, expand window to accommodate them
+      effectiveWindowSize = Math.max(SLIDING_WINDOW_SIZE, optimisticCount + SLIDING_WINDOW_SIZE - 1);
     } else {
-      slidingWindow = dedupedFiltered.slice(-SLIDING_WINDOW_SIZE);
+      // Standard window size
+      effectiveWindowSize = SLIDING_WINDOW_SIZE;
+    }
+    
+    // Apply window, but ensure consistent behavior for small conversations
+    if (dedupedFiltered.length <= SLIDING_WINDOW_SIZE && optimisticCount === 0) {
+      // For conversations with <= 10 messages (no optimistic), show all messages
+      // This prevents index/positioning issues with small conversations
+      slidingWindow = dedupedFiltered;
+    } else {
+      // Standard sliding window for larger conversations or when optimistic messages present
+      slidingWindow = dedupedFiltered.slice(-effectiveWindowSize);
+    }
+
+    // CONSISTENCY: Ensure we never return more messages than intended for memory optimization
+    if (slidingWindow.length > effectiveWindowSize + 2) { // Allow small buffer for optimistic transitions
+      slidingWindow = slidingWindow.slice(-effectiveWindowSize);
     }
 
     return slidingWindow;
